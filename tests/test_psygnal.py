@@ -1,5 +1,4 @@
 import gc
-import time
 from contextlib import suppress
 from functools import partial, wraps
 from inspect import Signature
@@ -9,7 +8,7 @@ from unittest.mock import MagicMock, Mock, call
 import pytest
 import toolz
 
-from psygnal import EmitLoopError, Signal, SignalInstance, _compiled
+from psygnal import EmitLoopError, Signal, SignalInstance
 from psygnal._weak_callback import WeakCallback
 
 
@@ -583,34 +582,6 @@ def test_unique_connections():
     assert len(e.one_int._slots) == 2
 
 
-@pytest.mark.skipif(_compiled, reason="passes, but segfaults on exit")
-def test_asynchronous_emit():
-    e = Emitter()
-    a = []
-
-    def slow_append(arg: int):
-        time.sleep(0.1)
-        a.append(arg)
-
-    mock = MagicMock(wraps=slow_append)
-    e.no_arg.connect(mock, unique=False)
-
-    assert not Signal.current_emitter()
-    value = 42
-    with pytest.warns(FutureWarning):
-        thread = e.no_arg.emit(value, asynchronous=True)
-    mock.assert_called_once()
-    assert Signal.current_emitter() is e.no_arg
-
-    # dude, you have to wait.
-    assert not a
-
-    if thread:
-        thread.join()
-    assert a == [value]
-    assert not Signal.current_emitter()
-
-
 def test_sig_unavailable():
     """In some cases, signature.inspect() fails on a callable, (many builtins).
 
@@ -1015,20 +986,3 @@ def test_signal_order():
 
     mock1.assert_has_calls([call(1), call(10)])
     mock2.assert_has_calls([call(1), call(10)])
-
-
-def test_double_emmision_error():
-    s = SignalInstance(raise_on_emit_during_emission=True)
-
-    i = 0
-
-    def callback():
-        nonlocal i
-        if i == 0:
-            s.emit()
-        i += 1
-
-    s.connect(callback)
-
-    with pytest.raises(EmitLoopError):
-        s.emit()

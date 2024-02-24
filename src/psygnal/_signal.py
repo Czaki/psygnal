@@ -999,7 +999,8 @@ class SignalInstance:
             sd.start()
             return sd
 
-        self._run_emit_loop(args)
+        self._emit_queue.append(args)
+        self._flush_emit_queue()
         return None
 
     @overload
@@ -1037,29 +1038,20 @@ class SignalInstance:
             asynchronous=asynchronous,
         )
 
+    def _flush_emit_queue(self) -> None:
+        if Signal.current_emitter() is not self:
+            while self._emit_queue:
+                args = self._emit_queue.pop(0)
+                self._run_emit_loop(args)
+
     def _run_emit_loop(self, args: tuple[Any, ...]) -> None:
         # allow receiver to query sender with Signal.current_emitter()
-        with self._lock:
-            self._emit_queue.append(args)
-            if len(self._emit_queue) > 1:
-                if self._raise_on_emit_during_emission:
-                    raise RuntimeError(
-                        f"Signal {self!r} emitted while already emitting."
-                    )
-                return None
-            try:
-                with Signal._emitting(self):
-                    i = 0
-                    while i < len(self._emit_queue):
-                        arg = self._emit_queue[i]
-                        for caller in self._slots:
-                            caller.cb(arg)
-                        i += 1
-            except Exception as e:
-                raise EmitLoopError(cb=caller, args=args, exc=e, signal=self) from e
-            finally:
-                self._emit_queue.clear()
-
+        with self._lock, Signal._emitting(self):
+            for caller in self._slots:
+                try:
+                    caller.cb(args)
+                except Exception as e:
+                    raise EmitLoopError(cb=caller, args=args, exc=e, signal=self) from e
         return None
 
     def block(self, exclude: Iterable[str | SignalInstance] = ()) -> None:
