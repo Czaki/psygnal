@@ -413,6 +413,7 @@ class EventedList(MutableSequence[_T]):
             idx = self.index(obj)
         except ValueError:  # pragma: no cover
             return
+
         if (
             args
             and isinstance(emitter, SignalRelay)
